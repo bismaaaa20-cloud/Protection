@@ -71,7 +71,7 @@ local function ModifikasiTubuhDanKamera(Character)
             Humanoid.CameraOffset = Vector3.new(0, 0, 0) 
         end
     end
-end
+end  
 -- =========================================================================
 -- [BAGIAN 4: CORE DETEKSI DARAH & CORE ADAPTIVE DODGE]
 -- =========================================================================
@@ -92,20 +92,28 @@ local function JalankanSistemDodge(Character)
             local CurrentTime = tick()
 
             if CurrentHealth > 0 then
+                -- Double Escape: Deteksi atap saat mencoba meluncur ke atas di dalam bangunan
                 if getgenv().EscapeActive and CurrentHealth < LastHealth then
                     local RayParam = RaycastParams.new()
                     RayParam.FilterDescendantsInstances = {Character}
                     RayParam.FilterType = Enum.RaycastFilterType.Exclude
-                    local LantaiCek = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -300, 0), RayParam)
                     
-                    if not LantaiCek or (LantaiCek and LantaiCek.Instance and string.find(string.lower(LantaiCek.Instance.Name), "water")) then
-                        for i = 1, 15 do
-                            if RootPart then RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 15, 0) end
+                    -- Sensor Langit-langit (Mencegah kepala tersangkut di atap kastil)
+                    local CekAtap = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, 50, 0), RayParam)
+                    local JarakNaik Aman = CekAtap and (CekAtap.Position.Y - RootPart.Position.Y) - 3 or 15
+                    
+                    if JarakNaikAman > 2 then
+                        for i = 1, 10 do
+                            if RootPart then RootPart.CFrame = RootPart.CFrame * CFrame.new(0, JarakNaikAman / 10, 0) end
                             task.wait(0.01)
                         end
+                    else
+                        -- Jika atap terlalu rendah, otomatis dash horizontal menjauh
+                        if RootPart then RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 0, -20) end
                     end
                 end
 
+                -- Adaptive Dodge Utama (Aktif otomatis saat HP kritis di bawah 60%)
                 if getgenv().AdaptiveDodge and HealthPercentage < 0.60 and not getgenv().EscapeActive then
                     getgenv().EscapeActive = true
                     
@@ -135,13 +143,16 @@ local function JalankanSistemDodge(Character)
                             end
                             task.wait(HoldDuration)
                         else
-                            if RootPart then RootPart.CFrame = RootPart.CFrame * CFrame.new(30, 0, 0) end
+                            -- Perubahan Area Kastil: Melakukan dash ke belakang menjauhi musuh, bukan ke samping tembok
+                            if RootPart then RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 0, 30) end
                             task.wait(0.02)
                             
                             local TinggiLantaiAsli = LantaiCek and LantaiCek.Position or RootPart.Position
                             local SafePlatform = Instance.new("Part")
                             SafePlatform.Size = Vector3.new(15, 1, 15)
-                            SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 10, 0)
+                            
+                            -- Membuat landasan darurat sedikit di bawah lantai asli agar tidak terlihat melayang mencolok
+                            SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 5, 0)
                             SafePlatform.Anchored = true
                             SafePlatform.Transparency = 1
                             SafePlatform.Parent = game.Workspace
@@ -163,6 +174,7 @@ local function JalankanSistemDodge(Character)
                     end)
                 end
 
+                -- Anti Player Combo Shield (Mekanisme Desync CFrame)
                 if CurrentHealth < LastHealth then
                     if getgenv().AntiPlayerComboShield and (CurrentTime - LastDamageTime) < 1.0 then
                         if not ShieldActive and RootPart then
@@ -170,7 +182,8 @@ local function JalankanSistemDodge(Character)
                             task.spawn(function()
                                 local SimpanCFrame = RootPart.CFrame
                                 while ShieldActive and RootPart do
-                                    RootPart.CFrame = SimpanCFrame * CFrame.new(0, -25, 0) 
+                                    -- Modifikasi Jarak: Desync diperpendek menjadi -15 agar tidak menembus batas bawah struktur bangunan map
+                                    RootPart.CFrame = SimpanCFrame * CFrame.new(0, -15, 0) 
                                     task.wait()
                                 end
                                 if RootPart then RootPart.CFrame = SimpanCFrame end
@@ -185,6 +198,7 @@ local function JalankanSistemDodge(Character)
         end
     end)
 end
+
 -- =========================================================================
 -- [BAGIAN 5: SISTEM INTI RESPAWN - PEMANGGIL MODUL GABUNGAN]
 -- =========================================================================
