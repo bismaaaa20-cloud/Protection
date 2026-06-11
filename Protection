@@ -1,122 +1,104 @@
--- GLOBAL SETTINGS (Format murni Lua - ULTIMATE ALL-IN-ONE PACK)
-getgenv().AutoServerHeal = true        -- MEMICU HEAL ASLI SERVER (Bukan Visual!)
-getgenv().AntiPlayerComboShield = true -- Hitbox gaib menghindar otomatis di server saat di-combo player
-getgenv().ComboBreaker = true          -- Lepas dari status kaku / stun skill buah player lain
-getgenv().InfiniteEnergyBypass = true  -- Energi asli penuh permanen untuk spam skill/dash
-getgenv().SmallHitbox = true           -- Mengecilkan hitbox agar serangan musuh meleset
-getgenv().FreezeNPCBrain = true        -- Mengunci NPC diam jadi samsak/tas pukulan
+-- GLOBAL SETTINGS (Format murni Lua - UNIVERSAL DODGE BYPASS)
+getgenv().FastEnergyRegen = true       -- Pengisian energi kilat (Bisa Dash & Melompat Lancar)
+getgenv().AntiPlayerComboShield = true -- Desync anti-combo PvP (Hitbox pindah ke bawah tanah)
+getgenv().ComboBreaker = true          -- Lepas dari status kaku / stun skill lawan
+getgenv().SuperSmallHitbox = true      -- Hitbox super kecil (0.1) agar serangan musuh meleset total
+getgenv().LowHealthSkyDodge = true     -- AKTIF UNIVERSAL: Mengelak ke langit dari semua NPC & Player
 
 local Player = game.Players.LocalPlayer
 local LastDamageTime = 0
 local ShieldActive = false
+local EscapeActive = false
 
 -- =========================================================
--- 1. REAL SERVER INFINITE ENERGY INTERCEPT (Bukan Visual)
--- =========================================================
-if getgenv().InfiniteEnergyBypass then
-    local OldIndex
-    OldIndex = hookmetamethod(game, "__index", function(Self, Key)
-        if getgenv().InfiniteEnergyBypass and tostring(Self) == "Energy" and (Key == "Value" or Key == "val") then
-            local MaxEnergy = Self.Parent:FindFirstChild("MaxEnergy") or Self.Parent:FindFirstChild("Energy")
-            if MaxEnergy then return MaxEnergy.Value end
-        end
-        return OldIndex(Self, Key)
-	end)
-end
-
--- =========================================================
--- 2. LOOP REFRESH ENERGI, REAL SERVER HEAL & NPC SAMSAK
+-- 1. LOOP: FAST REGEN ENERGY (Bisa Dash & Melompat Lancar)
 -- =========================================================
 task.spawn(function()
-    while task.wait(0.05) do -- Jeda aman 0.05 detik agar lancar tanpa crash
+    while task.wait(0.01) do
         local Character = Player.Character
-        local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
-        local Humanoid = Character and Character:FindFirstChild("Humanoid")
-        
-        if RootPart and Humanoid then
-            -- A. PICU REAL SERVER HEAL (Deteksi jika darah di bawah 85%)
-            if getgenv().AutoServerHeal and Humanoid.Health < (Humanoid.MaxHealth * 0.85) then
-                local CommF = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and 
-                              game:GetService("ReplicatedStorage").Remotes:FindFirstChild("CommF")
-                if CommF then
-                    -- Menembakkan fungsi resmi ke server agar darah naik secara nyata
-                    CommF:InvokeServer("Heal") 
-                    CommF:InvokeServer("PhoenixRegenActive", true)
+        if Character then
+            local EnergyObj = Character:FindFirstChild("Energy") or Player:FindFirstChild("Data") and Player.Data:FindFirstChild("Energy")
+            if getgenv().FastEnergyRegen and EnergyObj and EnergyObj:IsA("IntValue") then
+                if EnergyObj.Value < EnergyObj.MaxValue then
+                    EnergyObj.Value = math.min(EnergyObj.MaxValue, EnergyObj.Value + 500)
                 end
-            end
-
-            -- B. FITUR NPC SAMSAK (BRAIN FREEZE)
-            if getgenv().FreezeNPCBrain then
-                local EnemiesFolder = game.Workspace:FindFirstChild("Enemies")
-                if EnemiesFolder then
-                    for _, Enemy in pairs(EnemiesFolder:GetChildren()) do
-                        local EnemyHumanoid = Enemy:FindFirstChild("Humanoid")
-                        local EnemyRoot = Enemy:FindFirstChild("HumanoidRootPart")
-                        if EnemyHumanoid and EnemyRoot and EnemyHumanoid.Health > 0 then
-                            local Distance = (RootPart.Position - EnemyRoot.Position).Magnitude
-                            if Distance < 50 then
-                                EnemyHumanoid.WalkSpeed = 0
-                                EnemyRoot.Anchored = true -- Kunci NPC agar tidak mental saat dikombo
-                                local TargetScript = Enemy:FindFirstChild("Animate") or Enemy:FindFirstChild("Combat")
-                                if TargetScript then TargetScript.Disabled = true end
-                            end
-                        end
-                    end
-                end
-            end
-            
-            -- C. VISUAL BAR ENERGI LOCK (Anti Bug Level 1)
-            if getgenv().InfiniteEnergyBypass then
-                local EnergyObj = Character:FindFirstChild("Energy") or Player:FindFirstChild("Data") and Player.Data:FindFirstChild("Energy")
-                if EnergyObj then EnergyObj.Value = EnergyObj.MaxValue end
             end
         end
     end
 end)
 
 -- =========================================================
--- 3. LOGIKA PROTEKSI ANTI-PLAYER PVP (BUKAN VISUAL)
+-- 2. LOGIKA UTAMA PROTEKSI UNIVERSAL & BYPASS DODGE
 -- =========================================================
-local function AktifkanSistemPerlindungan(Character)
+local function AturSistemPVP(Character)
     local Humanoid = Character:WaitForChild("Humanoid")
     local RootPart = Character:WaitForChild("HumanoidRootPart")
     local LastHealth = Humanoid.Health
 
-    -- Hitbox Minimizer Pasif (Mengecilkan target serangan musuh)
-    if getgenv().SmallHitbox and RootPart then
-        RootPart.Size = Vector3.new(0.5, 0.5, 0.5)
+    -- HITBOX SUPER KECIL + ANTI-AMBLAS
+    if getgenv().SuperSmallHitbox and RootPart and Humanoid then
+        RootPart.Size = Vector3.new(0.1, 0.1, 0.1)
+        Humanoid.HipHeight = 2.8 
     end
 
     Humanoid.HealthChanged:Connect(function(CurrentHealth)
         local CurrentTime = tick()
         
+        -- =========================================================
+        -- PENYEMPURNAAN: FLY-ESCAPE DARI ALL PLAYER & ALL NPC
+        -- =========================================================
+        -- Memicu refleks menghindar universal saat darah menyentuh batas kritis di bawah 30%
+        if getgenv().LowHealthSkyDodge and CurrentHealth < (Humanoid.MaxHealth * 0.3) and not EscapeActive and CurrentHealth > 0 then
+            EscapeActive = true
+            task.spawn(function()
+                print("[Universal Dodge] Darah kritis akibat Serangan! Meluncur ke langit...")
+                
+                -- Memasang jangkar penahan gravitasi pasif agar tidak memicu deteksi speed-hack game
+                local BodyVelocity = Instance.new("BodyVelocity")
+                BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                BodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+                BodyVelocity.Parent = RootPart
+                
+                -- Meluncur naik setinggi 120 stud secara halus (Linear bypass anti-cheat)
+                for i = 1, 15 do
+                    RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 8, 0)
+                    task.wait(0.01)
+                end
+                
+                -- Mengunci posisi Anda di zona aman udara selama 4 detik untuk memulihkan diri
+                task.wait(4.0)
+                
+                -- Menghapus penahan beban dan mengembalikan kontrol gravitasi normal
+                BodyVelocity:Destroy()
+                EscapeActive = false
+                print("[Universal Dodge] Durasi habis, kembali ke medan tempur.")
+            end)
+        end
+
+        -- DETEKSI HIT MASUK (DARI PLAYER MAUPUN NPC)
         if CurrentHealth < LastHealth then
             local rawDamage = LastHealth - CurrentHealth
             
-            -- ANTI ONE-SHOT / COMBO SHIELD PLAYER (Memindahkan hitbox ke bawah tanah)
+            -- ANTI ONE-SHOT / COMBO SHIELD (Desync Hitbox)
             if getgenv().AntiPlayerComboShield and (CurrentTime - LastDamageTime) < 1.0 then
                 if not ShieldActive then
                     ShieldActive = true
                     task.spawn(function()
                         local SimpanCFrame = RootPart.CFrame
                         while ShieldActive do
-                            -- Menjatuhkan deteksi fisik asli 20 meter di bawah map agar serangan lanjutan musuh MISS
                             RootPart.CFrame = SimpanCFrame * CFrame.new(0, -20, 0) 
                             task.wait()
                         end
-                        RootPart.CFrame = SimpanCFrame -- Kembali ke atas saat kombo musuh selesai
+                        RootPart.CFrame = SimpanCFrame 
                     end)
-                    
-                    task.delay(1.5, function() -- Durasi tameng gaib
-                        ShieldActive = false
-                    end)
+                    task.delay(1.5, function() ShieldActive = false end)
                 end
             end
             
-            -- ANTI-STUN PVP (Combo Breaker)
+            -- ANTI-STUN UNIVERSAL (Combo Breaker)
             if getgenv().ComboBreaker and (CurrentTime - LastDamageTime) < 1.2 then
                 Humanoid.PlatformStand = false
-                Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) -- Paksa lepas dari efek stun buah lawan
+                Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
                 if RootPart.Anchored then RootPart.Anchored = false end
             end
             
@@ -126,10 +108,11 @@ local function AktifkanSistemPerlindungan(Character)
     end)
 end
 
--- Eksekusi otomatis saat skrip di-inject dan setiap kali respawn hidup kembali
-if Player.Character then task.spawn(AktifkanSistemPerlindungan, Player.Character) end
+-- Menjalankan skrip saat pertama kali di-inject ke Executor
+if Player.Character then task.spawn(AturSistemPVP, Player.Character) end
+
+-- Mengunci skrip otomatis jalan lagi setiap kali Anda Respawn (Hidup Lagi)
 Player.CharacterAdded:Connect(function(NewCharacter)
     string.clear = nil
-    task.spawn(AktifkanSistemPerlindungan, NewCharacter)
+    task.spawn(AturSistemPVP, NewCharacter)
 end)
-print("Skrip Gabungan Terakhir Berhasil Dimuat - 100% Berfungsi!")
