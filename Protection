@@ -1,57 +1,19 @@
--- GLOBAL SETTINGS (Format murni Lua - UNIVERSAL ANTI-STUN BYPASS)
-getgenv().AntiUniversalStun = true     -- AKTIF UNIVERSAL: Bebas dari segala jenis Stun Player & NPC musuh
-getgenv().FastEnergyRegen = true       -- Pengisian energi kilat (Bisa Dash & Melompat Lancar)
-getgenv().AntiPlayerComboShield = true -- Desync anti-combo PvP (Hitbox pindah ke bawah tanah)
-getgenv().ComboBreaker = true          -- Lepas dari status kaku / ragdoll setelah jatuh
-getgenv().SuperSmallHitbox = true      -- Hitbox super kecil (0.1) agar musuh meleset total
-getgenv().AdaptiveDodge = true         -- Sistem menghindar pintar berdasarkan area & darah
+-- =========================================================================
+-- [BAGIAN 1: PENGATURAN UTAMA GLOBAL - GETGENV]
+-- =========================================================================
+getgenv().FastEnergyRegen = true       -- Mengisi energi kilat (Bisa Dash/Lompat)
+getgenv().AntiUniversalStun = true     -- Universal anti-stun dari NPC & Player
+getgenv().SmallHeadHitbox = true       -- Mengunci hitbox mikro 0.1 di Kepala
+getgenv().AdaptiveDodge = true         -- Sistem menghindar pintar (Bawah tanah/Langit)
+getgenv().AntiPlayerComboShield = true -- Desync tameng anti-combo PvP
 
 local Player = game.Players.LocalPlayer
 local LastDamageTime = 0
 local ShieldActive = false
-local EscapeActive = false
-
--- =========================================================
--- 1. FIX MUTLAK: UNIVERSAL ANTI-STUN LOCK LOOP (0.01 DETIK)
--- =========================================================
-if getgenv().AntiUniversalStun then
-    task.spawn(function()
-        while task.wait(0.01) do -- Memindai dan menghapus kelumpuhan dari Player & NPC setiap 0.01 detik
-            local Character = Player.Character
-            local Humanoid = Character and Character:FindFirstChild("Humanoid")
-            
-            if getgenv().AntiUniversalStun and Humanoid then
-                -- A. BYPASS PENYEKAT KONTROL TOMBOL (Mencegah Analog/Tombol Macet Akibat Hit)
-                local LocalPlayerScripts = Player:FindFirstChild("PlayerScripts")
-                if LocalPlayerScripts then
-                    local ControlModule = LocalPlayerScripts:FindFirstChild("ControlModule")
-                    if ControlModule and ControlModule:IsA("ModuleScript") then
-                        -- Memaksa modul pergerakan utama Roblox untuk SELALU AKTIF dari serangan apa pun
-                        pcall(function() require(ControlModule):Enable() end)
-                    end
-                end
-                
-                -- B. PELEPAS STATUS KAKU & RAGDOLL INSTAN
-                -- Menolak perintah kaku (PlatformStand) atau jatuh terjungkal (Sit) akibat serangan NPC/Player
-                if Humanoid.PlatformStand == true or Humanoid.Sit == true then
-                    Humanoid.PlatformStand = false
-                    Humanoid.Sit = false
-                    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) -- Paksa karakter berdiri tegak instan
-                end
-                
-                -- C. BYPASS PENURUNAN KECEPATAN (ANTI SLOW EFFECT)
-                -- Jika skill NPC atau Player membuat jalan Anda lambat, paksa kembali normal
-                if Humanoid.WalkSpeed < 16 and not EscapeActive then
-                    Humanoid.WalkSpeed = 16 
-                end
-            end
-        end
-    end)
-end
-
--- =========================================================
--- 2. LOOP: FAST REGEN ENERGY (Bisa Dash & Melompat Lancar)
--- =========================================================
+getgenv().EscapeActive = false -- Berbagi status antar-fitur secara global
+-- =========================================================================
+-- [BAGIAN 2: SISTEM PERGANTIAN ENERGI KILAT & RELEASING STUN]
+-- =========================================================================
 task.spawn(function()
     while task.wait(0.01) do
         local Character = Player.Character
@@ -66,136 +28,174 @@ task.spawn(function()
     end
 end)
 
--- =========================================================
--- 3. LOGIKA UTAMA PROTEKSI PVP/PVE & SMART ADAPTIVE DODGE
--- =========================================================
-local function AturSistemPVP(Character)
+if getgenv().AntiUniversalStun then
+    task.spawn(function()
+        while task.wait(0.01) do
+            local Character = Player.Character
+            local Humanoid = Character and Character:FindFirstChild("Humanoid")
+            if getgenv().AntiUniversalStun and Humanoid then
+                local LocalPlayerScripts = Player:FindFirstChild("PlayerScripts")
+                if LocalPlayerScripts then
+                    local ControlModule = LocalPlayerScripts:FindFirstChild("ControlModule")
+                    if ControlModule and ControlModule:IsA("ModuleScript") then
+                        pcall(function() require(ControlModule):Enable() end)
+                    end
+                end
+                if Humanoid.PlatformStand == true or Humanoid.Sit == true then
+                    Humanoid.PlatformStand = false
+                    Humanoid.Sit = false
+                    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+                if Humanoid.WalkSpeed < 16 and not getgenv().EscapeActive then
+                    Humanoid.WalkSpeed = 16 
+                end
+            end
+        end
+    end)
+end
+-- =========================================================================
+-- [BAGIAN 3: MODUL MODIFIKASI HITBOX KEPALA & STABILITAS KAMERA]
+-- =========================================================================
+local function ModifikasiTubuhDanKamera(Character)
+    local Humanoid = Character:WaitForChild("Humanoid")
+    local RootPart = Character:WaitForChild("HumanoidRootPart")
+    local Head = Character:WaitForChild("Head", 5)
+
+    if getgenv().SmallHeadHitbox and Head and Humanoid then
+        if RootPart then RootPart.Size = Vector3.new(2, 2, 1) end
+        Head.Size = Vector3.new(0.1, 0.1, 0.1)
+        Humanoid.HipHeight = 0 
+        
+        local Kamera = game.Workspace.CurrentCamera
+        if Kamera then
+            Kamera.CameraSubject = Humanoid 
+            Humanoid.CameraOffset = Vector3.new(0, 0, 0) 
+        end
+    end
+end
+-- =========================================================================
+-- [BAGIAN 4: CORE DETEKSI DARAH & CORE ADAPTIVE DODGE]
+-- =========================================================================
+local function JalankanSistemDodge(Character)
     local Humanoid = Character:WaitForChild("Humanoid")
     local RootPart = Character:WaitForChild("HumanoidRootPart")
     local LastHealth = Humanoid.Health
 
-    -- FIX STABILIZER LANTAI ANTI-AMBLAS
-    if getgenv().SuperSmallHitbox and RootPart and Humanoid then
-        RootPart.Size = Vector3.new(0.1, 0.1, 0.1)
-        task.spawn(function()
-            while Character and Character.Parent and getgenv().SuperSmallHitbox do
-                if Humanoid.HipHeight ~= 3.5 then
-                    Humanoid.HipHeight = 3.5
-                end
-                task.wait(0.5)
-            end
-        end)
-    end
+    task.spawn(function()
+        while Character and Character.Parent and task.wait(0.01) do
+            local CurrentHealth = Humanoid.Health
+            local MaxHealth = Humanoid.MaxHealth
+            local HealthPercentage = CurrentHealth / MaxHealth
+            local CurrentTime = tick()
 
-    Humanoid.HealthChanged:Connect(function(CurrentHealth)
-        local CurrentTime = tick()
-        local HealthPercentage = CurrentHealth / Humanoid.MaxHealth
-        
-        if getgenv().AdaptiveDodge and CurrentHealth > 0 then
-            local PemicuDodge = false
-            local HoldDuration = 3.0
-            
-            if HealthPercentage <= 0.25 then 
-                HoldDuration = 15.0
-                PemicuDodge = true
-                if EscapeActive and getgenv().CurrentDodgeTime and getgenv().CurrentDodgeTime < 15 then
-                    EscapeActive = false 
-                end
-            elseif HealthPercentage < 0.35 and not EscapeActive then
-                HoldDuration = 7.0
-                PemicuDodge = true
-            elseif HealthPercentage < 0.60 and not EscapeActive then
-                HoldDuration = 3.0
-                PemicuDodge = true
-            end
-            
-            if PemicuDodge and not EscapeActive then
-                EscapeActive = true
-                getgenv().CurrentDodgeTime = HoldDuration
-                
-                task.spawn(function()
-                    local BodyVelocity = Instance.new("BodyVelocity")
-                    BodyVelocity.Velocity = Vector3.new(0, 0, 0)
-                    BodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
-                    BodyVelocity.Parent = RootPart
-                    
+            if CurrentHealth > 0 then
+                if getgenv().EscapeActive and CurrentHealth < LastHealth then
                     local RayParam = RaycastParams.new()
                     RayParam.FilterDescendantsInstances = {Character}
                     RayParam.FilterType = Enum.RaycastFilterType.Exclude
-                    local LantaiCek = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -150, 0), RayParam)
+                    local LantaiCek = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -300, 0), RayParam)
                     
-                    local IsDiAtasLaut = false
                     if not LantaiCek or (LantaiCek and LantaiCek.Instance and string.find(string.lower(LantaiCek.Instance.Name), "water")) then
-                        IsDiAtasLaut = true
-                    end
-                    
-                    if IsDiAtasLaut then
-                        RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
-                        task.wait(0.02)
-                        for i = 1, 25 do 
-                            RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 9, 0)
+                        print("[Double Escape] Meluncur naik lebih tinggi ke awan...")
+                        for i = 1, 15 do
+                            RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 10, 0)
                             task.wait(0.01)
                         end
-                        task.wait(HoldDuration)
-                    else
-                        RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
-                        task.wait(0.02)
-                        
-                        local TinggiLantaiAsli = LantaiCek.Position
-                        local SafePlatform = Instance.new("Part")
-                        SafePlatform.Size = Vector3.new(10, 1, 10)
-                        SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 8, 0)
-                        SafePlatform.Anchored = true
-                        SafePlatform.Transparency = 1
-                        SafePlatform.Parent = game.Workspace
-                        
-                        RootPart.CFrame = CFrame.new(SafePlatform.Position + Vector3.new(0, 4, 0))
-                        task.wait(HoldDuration) 
-                        
-                        RootPart.CFrame = CFrame.new(TinggiLantaiAsli + Vector3.new(0, 4, 0))
-                        SafePlatform:Destroy()
                     end
-                    
-                    local HasilRay = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -500, 0), RayParam)
-                    if HasilRay then
-                        RootPart.CFrame = CFrame.new(HasilRay.Position + Vector3.new(0, 4, 0))
-                    end
-                    
-                    BodyVelocity:Destroy()
-                    getgenv().CurrentDodgeTime = nil
-                    EscapeActive = false
-                end)
-            end
-        end
-
-        -- DETEKSI HIT MASUK
-        if CurrentHealth < LastHealth then
-            local rawDamage = LastHealth - CurrentHealth
-            
-            -- ANTI ONE-SHOT / COMBO SHIELD (Desync Hitbox)
-            if getgenv().AntiPlayerComboShield and (CurrentTime - LastDamageTime) < 1.0 then
-                if not ShieldActive then
-                    ShieldActive = true
-                    task.spawn(function()
-                        local SimpanCFrame = RootPart.CFrame
-                        while ShieldActive do
-                            RootPart.CFrame = SimpanCFrame * CFrame.new(0, -20, 0) 
-                            task.wait()
-                        end
-                        RootPart.CFrame = SimpanCFrame 
-                    end)
-                    task.delay(1.5, function() ShieldActive = false end)
                 end
+
+                if getgenv().AdaptiveDodge and HealthPercentage < 0.60 and not getgenv().EscapeActive then
+                    getgenv().EscapeActive = true
+                    
+                    task.spawn(function()
+                        local HoldDuration = 3.0
+                        if HealthPercentage <= 0.25 then HoldDuration = 15.0
+                        elseif HealthPercentage < 0.35 then HoldDuration = 7.0 end
+                        
+                        local BodyVelocity = Instance.new("BodyVelocity")
+                        BodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                        BodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
+                        BodyVelocity.Parent = RootPart
+                        
+                        local RayParam = RaycastParams.new()
+                        RayParam.FilterDescendantsInstances = {Character}
+                        RayParam.FilterType = Enum.RaycastFilterType.Exclude
+                        local LantaiCek = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -150, 0), RayParam)
+                        
+                        local IsDiAtasLaut = not LantaiCek or (LantaiCek and LantaiCek.Instance and string.find(string.lower(LantaiCek.Instance.Name), "water"))
+                        
+                        if IsDiAtasLaut then
+                            RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
+                            task.wait(0.02)
+                            for i = 1, 25 do 
+                                RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 9, 0)
+                                task.wait(0.01)
+                            end
+                            task.wait(HoldDuration)
+                        else
+                            RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
+                            task.wait(0.02)
+                            
+                            local TinggiLantaiAsli = LantaiCek.Position
+                            local SafePlatform = Instance.new("Part")
+                            SafePlatform.Size = Vector3.new(10, 1, 10)
+                            SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 8, 0)
+                            SafePlatform.Anchored = true
+                            SafePlatform.Transparency = 1
+                            SafePlatform.Parent = game.Workspace
+                            
+                            RootPart.CFrame = CFrame.new(SafePlatform.Position + Vector3.new(0, 4, 0))
+                            task.wait(HoldDuration) 
+                            
+                            RootPart.CFrame = CFrame.new(TinggiLantaiAsli + Vector3.new(0, 4, 0))
+                            SafePlatform:Destroy()
+                        end
+                        
+                        local HasilRay = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -500, 0), RayParam)
+                        if HasilRay then RootPart.CFrame = CFrame.new(HasilRay.Position + Vector3.new(0, 4, 0)) end
+                        
+                        BodyVelocity:Destroy()
+                        getgenv().EscapeActive = false
+                    end)
+                end
+
+                if CurrentHealth < LastHealth then
+                    local rawDamage = LastHealth - CurrentHealth
+                    if getgenv().AntiPlayerComboShield and (CurrentTime - LastDamageTime) < 1.0 then
+                        if not ShieldActive then
+                            ShieldActive = true
+                            task.spawn(function()
+                                local SimpanCFrame = RootPart.CFrame
+                                while ShieldActive do
+                                    RootPart.CFrame = SimpanCFrame * CFrame.new(0, -20, 0) 
+                                    task.wait()
+                                end
+                                RootPart.CFrame = SimpanCFrame 
+                            end)
+                            task.delay(1.5, function() ShieldActive = false end)
+                        end
+                    end
+                    LastDamageTime = CurrentTime
+                end
+                LastHealth = CurrentHealth
             end
-            
-            LastDamageTime = CurrentTime
         end
-        LastHealth = Humanoid.Health
     end)
 end
 
-if Player.Character then task.spawn(AturSistemPVP, Player.Character) end
+-- =========================================================================
+-- [SISTEM INTI RESPAWN - PEMANGGIL MODUL GABUNGAN]
+-- =========================================================================
+local function InisialisasiSkripLengkap(Character)
+    ModifikasiTubuhDanKamera(Character)
+    JalankanSistemDodge(Character)
+end
+
+if Player.Character then 
+    task.spawn(InisialisasiSkripLengkap, Player.Character) 
+end
+
 Player.CharacterAdded:Connect(function(NewCharacter)
-    string.clear = nil
-    task.spawn(AturSistemPVP, NewCharacter)
+    string.clear = nil 
+    task.spawn(InisialisasiSkripLengkap, NewCharacter)
 end)
