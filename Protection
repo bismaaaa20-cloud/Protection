@@ -1,0 +1,178 @@
+-- GLOBAL SETTINGS (Dapat diubah kapan saja di Executor)
+getgenv().InstantTriggerHeal = true -- Fitur heal instan lewat server
+getgenv().ClientProtection = true    -- Fitur perlindungan damage
+getgenv().ComboBreaker = true        -- Anti-stun / lepas combo
+getgenv().SmallHitbox = true         -- Hitbox lebih kecil agar musuh mis-direction
+getgenv().DamageReduction = 0.5     -- Terima 50% damage
+getgenv().AntiCheatBypass = true     -- Melindungi skrip dari deteksi Anti-Cheat game
+getgenv().AntiAFK = true             -- BARU: Mencegah kick akibat diam terlalu lama (20 menit+)
+
+local Player = game.Players.LocalPlayer
+local LastDamageTime = 0
+local ComboShieldActive = false
+
+-- =========================================================
+-- BARU: FITUR ANTI-AFK PERMANEN
+-- =========================================================
+if getgenv().AntiAFK then
+	local VirtualUser = game:GetService("VirtualUser")
+	-- Menangkap sinyal saat sistem mendeteksi idled (diam tanpa input)
+	Player.Idled:Connect(function()
+		if getgenv().AntiAFK then
+			-- Menimpa deteksi diam dengan mensimulasikan ketukan tombol gaib di latar belakang
+			VirtualUser:CaptureController()
+			VirtualUser:ClickButton2(Vector2.new(0,0))
+			print("[Anti-AFK] Berhasil menipu sistem, karakter tetap dianggap aktif!")
+		end
+	end)
+end
+
+-- =========================================================
+-- LAPISAN KEAMANAN ANTI-CHEAT BYPASS (IGNORE PLAYERS)
+-- =========================================================
+if getgenv().AntiCheatBypass then
+	local OldIndex
+	OldIndex = hookmetamethod(game, "__index", function(Self, Key)
+		if getgenv().SmallHitbox and tostring(Self) == "HumanoidRootPart" and Key == "Size" then
+			return Vector3.new(2, 2, 1)
+		end
+		if getgenv().ComboBreaker and tostring(Self) == "Humanoid" and (Key == "PlatformStand" or Key == "WalkSpeed") then
+			if Key == "PlatformStand" then return false end
+			if Key == "WalkSpeed" then return 16 end 
+		end
+		return OldIndex(Self, Key)
+	end)
+	
+	local OldNamecall
+	OldNamecall = hookmetamethod(game, "__namecall", function(Self, ...)
+		local Method = getnamecallmethod()
+		local Args = {...}
+		
+		if Method == "FireServer" or Method == "InvokeServer" then
+			local RemoteName = string.lower(tostring(Self))
+			
+			-- BARU: MEMBENTENG SCRIPT AGAR HANYA MEMERIKSA BOT SISTEM, ABAIKAN PLAYER LAIN
+			-- Memastikan sinyal berasal dari folder internal game, bukan data kiriman client player lain
+			local IsSystemRemote = not Self:IsDescendantOf(game.Workspace) 
+			
+			if IsSystemRemote then
+				-- Blokir pengiriman log crash / kecurangan otomatis ke server pusat
+				if string.find(RemoteName, "cheat") or string.find(RemoteName, "report") or string.find(RemoteName, "ban") or string.find(RemoteName, "kick") or string.find(RemoteName, "log") then
+					print("[Anti-Cheat] Sistem bot game mencoba melapor, berhasil diabaikan/diblokir!")
+					return nil 
+				end
+			end
+		end
+		return OldNamecall(Self, ...)
+	end)
+end
+
+-- =========================================================
+-- DETEKSI OTOMATIS REMOTEEVENT GAME (BLOX FRUITS & ALL GAMES)
+-- =========================================================
+local function TemukanRemoteHealAtauItem()
+	local MainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes") and 
+					  game:GetService("ReplicatedStorage").Remotes:FindFirstChild("CommF")
+	if MainEvent then return MainEvent end
+
+	local KataKunci = {"Heal", "Medkit", "Eat", "UseItem", "Potion", "Regen", "Consume"}
+	for _, FolderName in pairs({"ReplicatedStorage", "JointsService"}) do
+		local Service = game:GetService(FolderName)
+		if Service then
+			for _, Object in pairs(Service:GetDescendants()) do
+				if Object:IsA("RemoteEvent") or Object:IsA("RemoteFunction") then
+					for _, Kata in pairs(KataKunci) do
+						if string.find(string.lower(Object.Name), string.lower(Kata)) then
+							return Object
+						end
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
+-- =========================================================
+-- FITUR HITBOX MINIMIZER
+-- =========================================================
+local function AturHitboxKarakter(Character)
+	if not getgenv().SmallHitbox then return end
+	local RootPart = Character:WaitForChild("HumanoidRootPart", 5)
+	if RootPart then
+		RootPart.Size = Vector3.new(0.4, 0.4, 0.4) 
+	end
+	for _, Part in pairs(Character:GetChildren()) do
+		if Part:IsA("BasePart") and Part.Name ~= "HumanoidRootPart" then
+			Part.Size = Part.Size * 0.75 
+		end
+	end
+end
+
+-- =========================================================
+-- LOGIKA UTAMA PERMAINAN
+-- =========================================================
+local function AktifkanSistemPerlindungan(Character)
+	local Humanoid = Character:WaitForChild("Humanoid")
+	local RootPart = Character:WaitForChild("HumanoidRootPart")
+	local LastHealth = Humanoid.Health
+
+	AturHitboxKarakter(Character)
+
+	Humanoid.HealthChanged:Connect(function(CurrentHealth)
+		local CurrentTime = tick()
+		
+		if CurrentHealth < LastHealth then
+			local rawDamage = LastHealth - CurrentHealth
+			
+			-- 1. FITUR ANTI-COMBO
+			if getgenv().ComboBreaker then
+				if (CurrentTime - LastDamageTime) < 1.0 then
+					Humanoid.PlatformStand = false
+					Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+					if RootPart.Anchored then RootPart.Anchored = false end
+					
+					if not ComboShieldActive then
+						ComboShieldActive = true
+						task.spawn(function()
+							local CadanganReduction = getgenv().DamageReduction
+							getgenv().DamageReduction = 0.05 
+							task.wait(1.5)
+							getgenv().DamageReduction = CadanganReduction
+							ComboShieldActive = false
+						end)
+					end
+				end
+				LastDamageTime = CurrentTime
+			end
+
+			-- 2. INSTANT TRIGGER HEAL
+			if getgenv().InstantTriggerHeal then
+				task.spawn(function()
+					local TargetRemote = TemukanRemoteHealAtauItem()
+					if TargetRemote then
+						if TargetRemote.Name == "CommF" then
+							TargetRemote:InvokeServer("Heal") 
+						else
+							TargetRemote:FireServer() 
+						end
+					end
+				end)
+			end
+
+			-- 3. PROTECTION REDUCE DAMAGE
+			if getgenv().ClientProtection and rawDamage > 0 then
+				local reducedDamage = rawDamage * getgenv().DamageReduction
+				Humanoid.Health = math.min(Humanoid.MaxHealth, CurrentHealth + (rawDamage - reducedDamage))
+			end
+		end
+		
+		LastHealth = Humanoid.Health
+	end)
+end
+
+if Player.Character then task.spawn(AktifkanSistemPerlindungan, Player.Character) end
+Player.CharacterAdded:Connect(function(NewCharacter)
+	AktifkanSistemPerlindungan(NewCharacter)
+end)
+print("Skrip Multi-Game Super (Anti-AFK & Ignore Players Anti-Cheat) Dimuat!")
