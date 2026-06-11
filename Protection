@@ -1,8 +1,9 @@
--- GLOBAL SETTINGS (Format murni Lua - VERSI ANTI AIR LAUT DI BAWAH PULAU)
-getgenv().FastEnergyRegen = true       -- Pengisian energi kilat
-getgenv().AntiPlayerComboShield = true -- Desync anti-combo PvP
-getgenv().ComboBreaker = true          -- Lepas dari status kaku / stun
-getgenv().SuperSmallHitbox = true      -- Hitbox super kecil (0.1)
+-- GLOBAL SETTINGS (Format murni Lua - UNIVERSAL ANTI-STUN BYPASS)
+getgenv().AntiUniversalStun = true     -- AKTIF UNIVERSAL: Bebas dari segala jenis Stun Player & NPC musuh
+getgenv().FastEnergyRegen = true       -- Pengisian energi kilat (Bisa Dash & Melompat Lancar)
+getgenv().AntiPlayerComboShield = true -- Desync anti-combo PvP (Hitbox pindah ke bawah tanah)
+getgenv().ComboBreaker = true          -- Lepas dari status kaku / ragdoll setelah jatuh
+getgenv().SuperSmallHitbox = true      -- Hitbox super kecil (0.1) agar musuh meleset total
 getgenv().AdaptiveDodge = true         -- Sistem menghindar pintar berdasarkan area & darah
 
 local Player = game.Players.LocalPlayer
@@ -11,7 +12,45 @@ local ShieldActive = false
 local EscapeActive = false
 
 -- =========================================================
--- 1. LOOP: FAST REGEN ENERGY (Bisa Dash & Melompat Lancar)
+-- 1. FIX MUTLAK: UNIVERSAL ANTI-STUN LOCK LOOP (0.01 DETIK)
+-- =========================================================
+if getgenv().AntiUniversalStun then
+    task.spawn(function()
+        while task.wait(0.01) do -- Memindai dan menghapus kelumpuhan dari Player & NPC setiap 0.01 detik
+            local Character = Player.Character
+            local Humanoid = Character and Character:FindFirstChild("Humanoid")
+            
+            if getgenv().AntiUniversalStun and Humanoid then
+                -- A. BYPASS PENYEKAT KONTROL TOMBOL (Mencegah Analog/Tombol Macet Akibat Hit)
+                local LocalPlayerScripts = Player:FindFirstChild("PlayerScripts")
+                if LocalPlayerScripts then
+                    local ControlModule = LocalPlayerScripts:FindFirstChild("ControlModule")
+                    if ControlModule and ControlModule:IsA("ModuleScript") then
+                        -- Memaksa modul pergerakan utama Roblox untuk SELALU AKTIF dari serangan apa pun
+                        pcall(function() require(ControlModule):Enable() end)
+                    end
+                end
+                
+                -- B. PELEPAS STATUS KAKU & RAGDOLL INSTAN
+                -- Menolak perintah kaku (PlatformStand) atau jatuh terjungkal (Sit) akibat serangan NPC/Player
+                if Humanoid.PlatformStand == true or Humanoid.Sit == true then
+                    Humanoid.PlatformStand = false
+                    Humanoid.Sit = false
+                    Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp) -- Paksa karakter berdiri tegak instan
+                end
+                
+                -- C. BYPASS PENURUNAN KECEPATAN (ANTI SLOW EFFECT)
+                -- Jika skill NPC atau Player membuat jalan Anda lambat, paksa kembali normal
+                if Humanoid.WalkSpeed < 16 and not EscapeActive then
+                    Humanoid.WalkSpeed = 16 
+                end
+            end
+        end
+    end)
+end
+
+-- =========================================================
+-- 2. LOOP: FAST REGEN ENERGY (Bisa Dash & Melompat Lancar)
 -- =========================================================
 task.spawn(function()
     while task.wait(0.01) do
@@ -28,7 +67,7 @@ task.spawn(function()
 end)
 
 -- =========================================================
--- 2. LOGIKA UTAMA PROTEKSI PVP & ANTI AIR LAUT UNDERGROUND
+-- 3. LOGIKA UTAMA PROTEKSI PVP/PVE & SMART ADAPTIVE DODGE
 -- =========================================================
 local function AturSistemPVP(Character)
     local Humanoid = Character:WaitForChild("Humanoid")
@@ -52,28 +91,34 @@ local function AturSistemPVP(Character)
         local CurrentTime = tick()
         local HealthPercentage = CurrentHealth / Humanoid.MaxHealth
         
-        if getgenv().AdaptiveDodge and CurrentHealth > 0 and not EscapeActive then
-            -- HANYA AKTIF JIKA DARAH DI BAWAH 60%
-            if HealthPercentage < 0.60 then
+        if getgenv().AdaptiveDodge and CurrentHealth > 0 then
+            local PemicuDodge = false
+            local HoldDuration = 3.0
+            
+            if HealthPercentage <= 0.25 then 
+                HoldDuration = 15.0
+                PemicuDodge = true
+                if EscapeActive and getgenv().CurrentDodgeTime and getgenv().CurrentDodgeTime < 15 then
+                    EscapeActive = false 
+                end
+            elseif HealthPercentage < 0.35 and not EscapeActive then
+                HoldDuration = 7.0
+                PemicuDodge = true
+            elseif HealthPercentage < 0.60 and not EscapeActive then
+                HoldDuration = 3.0
+                PemicuDodge = true
+            end
+            
+            if PemicuDodge and not EscapeActive then
                 EscapeActive = true
+                getgenv().CurrentDodgeTime = HoldDuration
                 
                 task.spawn(function()
-                    -- A. PENENTUAN DURASI SEMBUNYI
-                    local HoldDuration = 3.0 
-                    if HealthPercentage <= 0.20 then
-                        HoldDuration = 15.0 
-                        print("[Smart Dodge] Darah <= 20%! Sembunyi permanen: " .. HoldDuration .. " detik.")
-                    elseif HealthPercentage < 0.30 then
-                        HoldDuration = 7.0
-                    end
-                    
-                    -- B. MEMASANG ALAT GRAVITASI BYPASS
                     local BodyVelocity = Instance.new("BodyVelocity")
                     BodyVelocity.Velocity = Vector3.new(0, 0, 0)
                     BodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
                     BodyVelocity.Parent = RootPart
                     
-                    -- C. DETEKSI RELEVANSI LANTAI (RAYCAST)
                     local RayParam = RaycastParams.new()
                     RayParam.FilterDescendantsInstances = {Character}
                     RayParam.FilterType = Enum.RaycastFilterType.Exclude
@@ -84,10 +129,7 @@ local function AturSistemPVP(Character)
                         IsDiAtasLaut = true
                     end
                     
-                    -- D. EKSEKUSI DODGE BERDASARKAN LOKASI AIR VS DARAT
                     if IsDiAtasLaut then
-                        -- JIKA MEMANG SEDANG DI LAUT LEPAS: Meluncur ke atas langit tinggi (Bypass air)
-                        print("[Area Scan] Di laut lepas! Mengelak naik tinggi ke langit...")
                         RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
                         task.wait(0.02)
                         for i = 1, 25 do 
@@ -96,41 +138,32 @@ local function AturSistemPVP(Character)
                         end
                         task.wait(HoldDuration)
                     else
-                        -- JIKA DI ATAS PULAU (Darat): Geser ke samping, amblas TIPIS di bawah lantai pulau (Anti Air Laut)
-                        print("[Area Scan] Di atas pulau! Sembunyi tipis di bawah struktur lantai...")
                         RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
                         task.wait(0.02)
                         
-                        -- Menggunakan koordinat hasil deteksi permukaan lantai asli
                         local TinggiLantaiAsli = LantaiCek.Position
-                        
-                        -- Membuat platform pijakan gaib darurat di bawah tanah agar TIDAK JATUH KE LAUT
                         local SafePlatform = Instance.new("Part")
                         SafePlatform.Size = Vector3.new(10, 1, 10)
-                        SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 8, 0) -- Berada 8 stud di bawah lantai pulau
+                        SafePlatform.Position = TinggiLantaiAsli - Vector3.new(0, 8, 0)
                         SafePlatform.Anchored = true
-                        SafePlatform.Transparency = 1 -- Tidak terlihat
+                        SafePlatform.Transparency = 1
                         SafePlatform.Parent = game.Workspace
                         
-                        -- Pindahkan posisi karakter tepat di atas platform gaib tersebut
                         RootPart.CFrame = CFrame.new(SafePlatform.Position + Vector3.new(0, 4, 0))
+                        task.wait(HoldDuration) 
                         
-                        task.wait(HoldDuration) -- Menahan sembunyi di dalam tanah pulau
-                        
-                        -- Kembalikan karakter ke atas permukaan sebelum menghapus platform
                         RootPart.CFrame = CFrame.new(TinggiLantaiAsli + Vector3.new(0, 4, 0))
                         SafePlatform:Destroy()
                     end
                     
-                    -- E. PENDARATAN AKHIR AMAN ANTI-AMBLAS
                     local HasilRay = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -500, 0), RayParam)
                     if HasilRay then
                         RootPart.CFrame = CFrame.new(HasilRay.Position + Vector3.new(0, 4, 0))
                     end
                     
                     BodyVelocity:Destroy()
+                    getgenv().CurrentDodgeTime = nil
                     EscapeActive = false
-                    print("[Smart Dodge] Selesai, kembali ke permukaan dengan aman.")
                 end)
             end
         end
@@ -139,7 +172,7 @@ local function AturSistemPVP(Character)
         if CurrentHealth < LastHealth then
             local rawDamage = LastHealth - CurrentHealth
             
-            -- ANTI ONE-SHOT / COMBO SHIELD
+            -- ANTI ONE-SHOT / COMBO SHIELD (Desync Hitbox)
             if getgenv().AntiPlayerComboShield and (CurrentTime - LastDamageTime) < 1.0 then
                 if not ShieldActive then
                     ShieldActive = true
@@ -153,13 +186,6 @@ local function AturSistemPVP(Character)
                     end)
                     task.delay(1.5, function() ShieldActive = false end)
                 end
-            end
-            
-            -- ANTI-STUN PVP (Combo Breaker)
-            if getgenv().ComboBreaker and (CurrentTime - LastDamageTime) < 1.2 then
-                Humanoid.PlatformStand = false
-                Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                if RootPart.Anchored then RootPart.Anchored = false end
             end
             
             LastDamageTime = CurrentTime
