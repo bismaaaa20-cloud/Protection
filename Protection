@@ -1,102 +1,68 @@
--- GLOBAL SETTINGS (Format murni Lua)
-getgenv().InstantTriggerHeal = true -- Kunci darah otomatis pasif
-getgenv().ServerInfiniteEnergy = true -- BARU: Memaksa game mendeteksi energi asli 100% penuh
-getgenv().ComboBreaker = true        -- Anti-stun / lepas dari kunci combo Bounty Hunter
-getgenv().SmallHitbox = true         -- Hitbox diperkecil agar musuh mis-direction
-getgenv().GodModeComboShield = true  -- Proteksi dari kombo instan yang langsung membunuh
+-- GLOBAL SETTINGS (Murni Lua - Versi Aman Tanpa Modifikasi Memori)
+getgenv().InstantTriggerHeal = true 
+getgenv().InfiniteEnergy = true     
+getgenv().ComboBreaker = true        
+getgenv().SmallHitbox = true         
+getgenv().DamageReduction = 0.5     
 
 local Player = game.Players.LocalPlayer
-local LastDamageTime = 0
-local ComboShieldActive = false
 
--- =========================================================
--- BARU: DETEKSI MEMORI UNTUK UNBREAKABLE INFINITE ENERGY
--- =========================================================
-if getgenv().ServerInfiniteEnergy then
-    local OldIndex
-    OldIndex = hookmetamethod(game, "__index", function(Self, Key)
-        -- Mengintersept sistem anti-cheat game saat memantau nilai energi asli
-        if getgenv().ServerInfiniteEnergy and tostring(Self) == "Energy" and (Key == "Value" or Key == "val") then
-            -- Selalu laporkan ke server bahwa energi Anda bernilai maksimal (tidak pernah berkurang)
-            local MaxEnergy = Self.Parent:FindFirstChild("MaxEnergy") or Self.Parent:FindFirstChild("Energy")
-            if MaxEnergy then
-                return MaxEnergy.Value
-            end
-        end
-        return OldIndex(Self, Key)
-    end)
-end
-
--- 1. BACKUP REFRESH LOOP (Darah & Energi Cadangan)
+-- REFRESH LOOP DARAH & ENERGI PASIF (Mengikuti Batas Maksimal Asli)
 task.spawn(function()
-    while task.wait(0.01) do
-        local Character = Player.Character
-        local Humanoid = Character and Character:FindFirstChild("Humanoid")
-        
-        if Humanoid then
-            -- Pengisian darah cepat pasif
-            if getgenv().InstantTriggerHeal and Humanoid.Health < Humanoid.MaxHealth then
-                Humanoid.Health = math.min(Humanoid.MaxHealth, Humanoid.Health + (Humanoid.MaxHealth * 0.2))
-            end
-            
-            -- Penguncian data lokal agar indikator visual bar biru tetap penuh
-            if getgenv().ServerInfiniteEnergy then
-                local EnergyObj = Character:FindFirstChild("Energy") or Player:FindFirstChild("Data") and Player.Data:FindFirstChild("Energy")
-                if EnergyObj then
-                    EnergyObj.Value = 99999 -- Nilai konstan ekstrim agar tidak bisa dikurangi oleh skill apa pun
-                end
-            end
-        end
-    end
+	while task.wait(0.1) do -- Jeda aman agar tidak memicu desync data
+		local Character = Player.Character
+		local Humanoid = Character and Character:FindFirstChild("Humanoid")
+		
+		if Humanoid then
+			-- Pemulihan darah otomatis pasif saat terluka
+			if getgenv().InstantTriggerHeal and Humanoid.Health < Humanoid.MaxHealth then
+				Humanoid.Health = math.min(Humanoid.MaxHealth, Humanoid.Health + (Humanoid.MaxHealth * 0.1))
+			end
+			
+			-- Mengunci energi agar selalu penuh sesuai batas asli stats Anda (Anti-Bug Level 1)
+			if getgenv().InfiniteEnergy then
+				local EnergyObj = Character:FindFirstChild("Energy") or Player:FindFirstChild("Data") and Player.Data:FindFirstChild("Energy")
+				if EnergyObj then
+					EnergyObj.Value = EnergyObj.MaxValue -- Mengunci stabil di angka maksimal asli karakter
+				end
+			end
+		end
+	end
 end)
 
--- 2. FITUR ANTI ONE-SHOT COMBO
+-- LOGIKA ANTI-STUN & HITBOX
 local function AktifkanSistemPerlindungan(Character)
-    local Humanoid = Character:WaitForChild("Humanoid")
-    local RootPart = Character:WaitForChild("HumanoidRootPart")
-    local LastHealth = Humanoid.Health
+	local Humanoid = Character:WaitForChild("Humanoid")
+	local RootPart = Character:WaitForChild("HumanoidRootPart")
+	local LastHealth = Humanoid.Health
 
-    if getgenv().SmallHitbox and RootPart then
-        RootPart.Size = Vector3.new(0.5, 0.5, 0.5)
-    end
+	-- Mengubah hitbox ke ukuran aman agar tidak glitch ke lantai map
+	if getgenv().SmallHitbox and RootPart then
+		RootPart.Size = Vector3.new(1, 1, 1)
+	end
 
-    Humanoid.HealthChanged:Connect(function(CurrentHealth)
-        local CurrentTime = tick()
-        
-        if CurrentHealth < LastHealth then
-            local rawDamage = LastHealth - CurrentHealth
-            
-            if getgenv().GodModeComboShield and (rawDamage > (Humanoid.MaxHealth * 0.4) or (CurrentTime - LastDamageTime) < 0.8) then
-                if not ComboShieldActive then
-                    ComboShieldActive = true
-                    task.spawn(function()
-                        local OldHealth = Humanoid.Health
-                        while ComboShieldActive do
-                            Humanoid.Health = OldHealth
-                            task.wait()
-                        end
-                    end)
-                    
-                    task.delay(2.0, function()
-                        ComboShieldActive = false
-                    end)
-                end
-            end
-            
-            if getgenv().ComboBreaker and (CurrentTime - LastDamageTime) < 1.0 then
-                Humanoid.PlatformStand = false
-                Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-                if RootPart.Anchored then RootPart.Anchored = false end
-            end
-            
-            LastDamageTime = CurrentTime
-        end
-        LastHealth = Humanoid.Health
-    end)
+	Humanoid.HealthChanged:Connect(function(CurrentHealth)
+		if CurrentHealth < LastHealth then
+			local rawDamage = LastHealth - CurrentHealth
+			
+			-- Anti-Stun / Combo Breaker dasar
+			if getgenv().ComboBreaker then
+				Humanoid.PlatformStand = false
+				Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+				if RootPart.Anchored then RootPart.Anchored = false end
+			end
+
+			-- Pengurangan damage dasar
+			if getgenv().DamageReduction and rawDamage > 0 then
+				local reducedDamage = rawDamage * getgenv().DamageReduction
+				Humanoid.Health = math.min(Humanoid.MaxHealth, CurrentHealth + (rawDamage - reducedDamage))
+			end
+		end
+		LastHealth = Humanoid.Health
+	end)
 end
 
 if Player.Character then task.spawn(AktifkanSistemPerlindungan, Player.Character) end
 Player.CharacterAdded:Connect(function(NewCharacter)
-    string.clear = nil
-    task.spawn(AktifkanSistemPerlindungan, NewCharacter)
+	task.spawn(AktifkanSistemPerlindungan, NewCharacter)
 end)
