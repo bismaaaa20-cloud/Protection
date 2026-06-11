@@ -1,9 +1,9 @@
--- GLOBAL SETTINGS (Format murni Lua - UNIVERSAL DODGE BYPASS)
+-- GLOBAL SETTINGS (Format murni Lua - VERSI PENYEMPURNAAN HITBOX & DODGE)
 getgenv().FastEnergyRegen = true       -- Pengisian energi kilat (Bisa Dash & Melompat Lancar)
 getgenv().AntiPlayerComboShield = true -- Desync anti-combo PvP (Hitbox pindah ke bawah tanah)
 getgenv().ComboBreaker = true          -- Lepas dari status kaku / stun skill lawan
 getgenv().SuperSmallHitbox = true      -- Hitbox super kecil (0.1) agar serangan musuh meleset total
-getgenv().LowHealthSkyDodge = true     -- AKTIF UNIVERSAL: Mengelak ke langit dari semua NPC & Player
+getgenv().LowHealthSkyDodge = true     -- Menghindar otomatis universal saat darah kritis
 
 local Player = game.Players.LocalPlayer
 local LastDamageTime = 0
@@ -28,54 +28,75 @@ task.spawn(function()
 end)
 
 -- =========================================================
--- 2. LOGIKA UTAMA PROTEKSI UNIVERSAL & BYPASS DODGE
+-- 2. LOGIKA UTAMA PROTEKSI UNIVERSAL & NEW DODGE PATTERN
 -- =========================================================
 local function AturSistemPVP(Character)
     local Humanoid = Character:WaitForChild("Humanoid")
     local RootPart = Character:WaitForChild("HumanoidRootPart")
     local LastHealth = Humanoid.Health
 
-    -- HITBOX SUPER KECIL + ANTI-AMBLAS
+    -- PERBAIKAN STABILIZER LANTAI AGAR KAKI TIDAK NEMBUS
     if getgenv().SuperSmallHitbox and RootPart and Humanoid then
         RootPart.Size = Vector3.new(0.1, 0.1, 0.1)
-        Humanoid.HipHeight = 2.8 
+        
+        -- Mengunci HipHeight secara berulang melalui task.spawn agar tidak ditimpa oleh animasi gaya bertarung
+        task.spawn(function()
+            while Character and Character.Parent and getgenv().SuperSmallHitbox do
+                if Humanoid.HipHeight ~= 3.5 then
+                    Humanoid.HipHeight = 3.5 -- Nilai dinaikkan ke 3.5 agar kaki dijamin mengambang di atas lantai
+                end
+                task.wait(0.5)
+            end
+        end)
     end
 
     Humanoid.HealthChanged:Connect(function(CurrentHealth)
         local CurrentTime = tick()
         
-        -- =========================================================
-        -- PENYEMPURNAAN: FLY-ESCAPE DARI ALL PLAYER & ALL NPC
-        -- =========================================================
-        -- Memicu refleks menghindar universal saat darah menyentuh batas kritis di bawah 30%
+        -- REKAYASA BARU: SIDE-TO-SKY DODGE (ANTI-CHEAT BYPASS & REAL HITBOX ESCAPE)
         if getgenv().LowHealthSkyDodge and CurrentHealth < (Humanoid.MaxHealth * 0.3) and not EscapeActive and CurrentHealth > 0 then
             EscapeActive = true
             task.spawn(function()
-                print("[Universal Dodge] Darah kritis akibat Serangan! Meluncur ke langit...")
+                print("[Dodge] Darah kritis! Menghindar ke samping lalu meluncur ke langit...")
                 
-                -- Memasang jangkar penahan gravitasi pasif agar tidak memicu deteksi speed-hack game
+                -- Memasang penahan gravitasi pasif
                 local BodyVelocity = Instance.new("BodyVelocity")
                 BodyVelocity.Velocity = Vector3.new(0, 0, 0)
                 BodyVelocity.MaxForce = Vector3.new(0, math.huge, 0)
                 BodyVelocity.Parent = RootPart
                 
-                -- Meluncur naik setinggi 120 stud secara halus (Linear bypass anti-cheat)
-                for i = 1, 15 do
+                -- TAHAP 1: Menghindar ke Kanan secara horizontal sejauh 25 stud untuk keluar dari target area musuh
+                RootPart.CFrame = RootPart.CFrame * CFrame.new(25, 0, 0)
+                task.wait(0.02)
+                
+                -- TAHAP 2: Meluncur naik vertikal di tempat yang baru secara halus agar lolos anti-cheat
+                for i = 1, 18 do
                     RootPart.CFrame = RootPart.CFrame * CFrame.new(0, 8, 0)
                     task.wait(0.01)
                 end
                 
-                -- Mengunci posisi Anda di zona aman udara selama 4 detik untuk memulihkan diri
-                task.wait(4.0)
+                -- TAHAP 3: MENAHAN POSISI LEBIH LAMA (Dinaikkan dari 4 detik menjadi 7 detik sesuai permintaan)
+                task.wait(7.0)
                 
-                -- Menghapus penahan beban dan mengembalikan kontrol gravitasi normal
+                -- TAHAP 4: TURUN DENGAN MEMBACA TINGGI LANTAI BARU (Anti-Amblas & Anti-Jatuh Bebas)
+                -- Menggunakan Raycasting lokal untuk mendeteksi koordinat permukaan lantai di bawah karakter
+                local RaycastParam = RaycastParams.new()
+                RaycastParam.FilterDescendantsInstances = {Character}
+                RaycastParam.FilterType = Enum.RaycastFilterType.Exclude
+                
+                local HasilRay = game.Workspace:Raycast(RootPart.Position, Vector3.new(0, -500, 0), RaycastParam)
+                if HasilRay then
+                    -- Menurunkan posisi tepat di atas permukaan lantai baru yang terdeteksi oleh sistem
+                    RootPart.CFrame = CFrame.new(HasilRay.Position + Vector3.new(0, 4, 0))
+                end
+                
                 BodyVelocity:Destroy()
                 EscapeActive = false
-                print("[Universal Dodge] Durasi habis, kembali ke medan tempur.")
+                print("[Dodge] Kembali ke lantai baru dengan aman.")
             end)
         end
 
-        -- DETEKSI HIT MASUK (DARI PLAYER MAUPUN NPC)
+        -- DETEKSI HIT MASUK
         if CurrentHealth < LastHealth then
             local rawDamage = LastHealth - CurrentHealth
             
@@ -108,10 +129,7 @@ local function AturSistemPVP(Character)
     end)
 end
 
--- Menjalankan skrip saat pertama kali di-inject ke Executor
 if Player.Character then task.spawn(AturSistemPVP, Player.Character) end
-
--- Mengunci skrip otomatis jalan lagi setiap kali Anda Respawn (Hidup Lagi)
 Player.CharacterAdded:Connect(function(NewCharacter)
     string.clear = nil
     task.spawn(AturSistemPVP, NewCharacter)
